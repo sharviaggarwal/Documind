@@ -171,13 +171,13 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
   };
 
   const replaceCitationsInLine = (line: string, citations?: Citation[]) => {
-    const tokenRegex = /(\*\*.*?\*\*|\[\d+\])/g;
+    const tokenRegex = /(\*\*.*?\*\*|\[\d+\]|\[S\d+\]|\[[^\]]+?\s*\|\s*Page\s*\d+\])/g;
     const parts = line.split(tokenRegex);
 
     return parts.map((part, i) => {
-      const citationMatch = part.match(/^\[(\d+)\]$/);
-      if (citationMatch) {
-        const num = parseInt(citationMatch[1], 10);
+      const numericMatch = part.match(/^\[S?(\d+)\]$/);
+      if (numericMatch) {
+        const num = parseInt(numericMatch[1], 10);
         const matchedCitation = citations?.find((c) => c.sourceNumber === num);
         const isHighlighted = matchedCitation && activeCitationId === matchedCitation.id;
 
@@ -194,6 +194,36 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
             title={`Jump to Source ${num}${matchedCitation ? ` (Page ${matchedCitation.pageNumber})` : ''}`}
           >
             [{num}]
+          </button>
+        );
+      }
+
+      const pageMatch = part.match(/^\[([^\]]+?)\s*\|\s*Page\s*(\d+)\]$/);
+      if (pageMatch) {
+        const pageNum = parseInt(pageMatch[2], 10);
+        const matchedCitation = citations?.find((c) => c.pageNumber === pageNum);
+        const isHighlighted = matchedCitation && activeCitationId === matchedCitation.id;
+
+        return (
+          <button
+            key={i}
+            onClick={() => {
+              if (matchedCitation) {
+                setSelectedSource(matchedCitation);
+                setActiveCitationId(matchedCitation.id);
+                const elem = document.getElementById(`source-card-${matchedCitation.id}`);
+                if (elem) elem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+              }
+            }}
+            onMouseEnter={() => matchedCitation && setActiveCitationId(matchedCitation.id)}
+            className={`inline-flex items-center justify-center px-1.5 py-0.5 mx-0.5 rounded text-[10px] font-bold font-mono transition-all duration-150 cursor-pointer ${
+              isHighlighted
+                ? 'bg-cherry text-white ring-2 ring-cherry/30 scale-105 shadow-stamp'
+                : 'bg-blush-soft hover:bg-blush text-cherry hover:text-wine border border-cherry/25'
+            }`}
+            title={`Jump to ${pageMatch[1]} (Page ${pageNum})`}
+          >
+            {part}
           </button>
         );
       }

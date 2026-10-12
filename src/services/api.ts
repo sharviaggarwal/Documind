@@ -1,6 +1,6 @@
 /**
  * DocuMind Base API Client & Abstraction Layer
- * Designed for immediate plug-and-play backend integration (FastAPI, Express, LangChain, LlamaIndex).
+ * Connected directly to the FastAPI backend at http://localhost:8000
  */
 
 export interface ApiResponse<T> {
@@ -20,8 +20,8 @@ class ApiService {
   private isMockMode: boolean;
 
   constructor() {
-    this.baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
-    this.isMockMode = true; // Easily switched via Settings or env
+    this.baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+    this.isMockMode = false; // Connected to live FastAPI backend
   }
 
   public setMockMode(enabled: boolean) {
@@ -37,21 +37,25 @@ class ApiService {
   }
 
   /**
-   * Simulates network latency for realistic UX evaluation
+   * Simulates latency for mock preview cards
    */
-  public async simulateLatency(minMs: number = 250, maxMs: number = 700): Promise<void> {
+  public async simulateLatency(minMs: number = 200, maxMs: number = 500): Promise<void> {
     const delay = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
     return new Promise((resolve) => setTimeout(resolve, delay));
   }
 
   /**
-   * Generic fetch wrapper for when the live backend is connected
+   * Generic fetch wrapper for live backend calls
    */
   public async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    const headers = {
-      'Content-Type': 'application/json',
-      ...options.headers,
+    const headers: Record<string, string> = {
+      ...((options.headers as Record<string, string>) || {}),
     };
+
+    // Only set Content-Type to application/json when not sending FormData
+    if (!(options.body instanceof FormData)) {
+      headers['Content-Type'] = 'application/json';
+    }
 
     try {
       const response = await fetch(`${this.baseUrl}${endpoint}`, {

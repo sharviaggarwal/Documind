@@ -40,17 +40,18 @@ interface AppContextType {
   deleteDoc: (id: string) => Promise<void>;
   selectDocumentAndOpen: (doc: Document, view?: ActiveView) => void;
   resetUploadState: () => void;
+  refreshDocuments: () => Promise<Document[]>;
 }
 
 const DEFAULT_SETTINGS: RAGSettings = {
-  model: 'claude-3-5-sonnet',
+  model: 'llama-3-70b',
   temperature: 0.2,
-  retrievalTopK: 4,
-  chunkSize: 512,
+  retrievalTopK: 3,
+  chunkSize: 2000,
   similarityThreshold: 0.78,
-  systemPrompt: 'You are DocuMind AI, an elite document intelligence assistant. Answer questions strictly grounded in the provided document passages. Cite specific page numbers and passage references.',
+  systemPrompt: 'You are DocuMind, an AI document intelligence assistant. Answer the user\'s question using ONLY the information provided in the context. Ground claims strictly in cited [doc | Page n] sources.',
   streamSpeed: 'fast',
-  useMockBackend: true,
+  useMockBackend: false,
 };
 
 const INITIAL_UPLOAD_PROGRESS: UploadProgressState = {
@@ -75,24 +76,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgressState>(INITIAL_UPLOAD_PROGRESS);
 
-  // Load initial documents
-  useEffect(() => {
-    const loadDocs = async () => {
+  const refreshDocuments = useCallback(async (): Promise<Document[]> => {
+    try {
       const docs = await documentService.getDocuments();
       setDocuments(docs);
       if (docs.length > 0 && !activeDocument) {
         setActiveDocument(docs[0]);
       }
-    };
-    loadDocs();
-  }, []);
+      return docs;
+    } catch (err) {
+      console.error('Error refreshing documents:', err);
+      return [];
+    }
+  }, [activeDocument]);
+
+  // Load initial documents
+  useEffect(() => {
+    refreshDocuments();
+  }, [refreshDocuments]);
 
   // Sync chat messages when active document changes
   useEffect(() => {
     if (activeDocument) {
       ragService.getMessages(activeDocument.id).then((msgs) => {
         setChatMessages(msgs);
-        // Default selected source to the first citation if present
         const lastMsgWithCitations = [...msgs].reverse().find((m) => m.citations && m.citations.length > 0);
         if (lastMsgWithCitations && lastMsgWithCitations.citations && lastMsgWithCitations.citations.length > 0) {
           setSelectedSource(lastMsgWithCitations.citations[0]);
@@ -111,11 +118,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const sendMessage = useCallback(
     async (content: string) => {
-      if (!activeDocument || !content.trim() || isStreaming) return;
+      if (!content.trim() || isStreaming) return;
+
+      const docId = activeDocument ? activeDocument.id : 'all';
 
       const userMsg: Message = {
         id: `user-${Date.now()}`,
-        documentId: activeDocument.id,
+        documentId: docId,
         role: 'user',
         content: content.trim(),
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -123,13 +132,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // Append user message immediately
       setChatMessages((prev) => [...prev, userMsg]);
-      ragService.saveMessage(activeDocument.id, userMsg);
+      ragService.saveMessage(docId, userMsg);
 
       // Create placeholder assistant message
       const assistantMsgId = `asst-${Date.now()}`;
       const placeholderAssistantMsg: Message = {
         id: assistantMsgId,
-        documentId: activeDocument.id,
+        documentId: docId,
         role: 'assistant',
         content: '',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -163,14 +172,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
           }
         );
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('Error generating AI response:', err);
+        const errMsg = (err as { message?: string })?.message || String(err);
         setChatMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsgId
               ? {
                   ...m,
-                  content: 'Sorry, I encountered an issue retrieving passages from this document. Please check your query or settings.',
+                  content: `⚠️ Failed to generate answer: ${errMsg}. Please check if the DocuMind backend (port 8000) and Ollama ('llama3.1:8b') are active.`,
                   isLoading: false,
                 }
               : m
@@ -183,37 +193,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [activeDocument, isStreaming, settings]
   );
 
-  const handleFileUpload = useCallback(async (file: File): Promise<Document | null> => {
-    try {
-      const newDoc = await documentService.uploadDocument(file, (state) => {
-        setUploadProgress(state);
-      });
-
-      // Confetti celebratory feedback
+  const handleFileUpload = useCallback(
+    async (file: File): Promise<Document | null> => {
       try {
-        confetti({
-          particleCount: 50,
-          spread: 60,
-          origin: { y: 0.6 }
+        const newDoc = await documentService.uploadDocument(file, (state) => {
+          setUploadProgress(state);
         });
-      } catch {
-        // ignore in non-browser or if canvas blocked
-      }
 
-      setDocuments((prev) => [newDoc, ...prev]);
-      setActiveDocument(newDoc);
-      return newDoc;
-    } catch (err) {
-      console.error('Upload failed:', err);
-      setUploadProgress({
-        stage: 'error',
-        percentage: 0,
-        statusMessage: 'Failed to process document. Please try again.',
-        error: String(err),
-      });
-      return null;
-    }
-  }, []);
+        try {
+          confetti({
+            particleCount: 50,
+            spread: 60,
+            origin: { y: 0.6 }
+          });
+        } catch {
+          // ignore in non-browser or if canvas blocked
+        }
+
+        await refreshDocuments();
+        setActiveDocument(newDoc);
+        return newDoc;
+      } catch (err: unknown) {
+        console.error('Upload failed:', err);
+        const errMsg = (err as { message?: string })?.message || String(err);
+        setUploadProgress({
+          stage: 'error',
+          percentage: 0,
+          statusMessage: 'Failed to process document. Please try again.',
+          error: errMsg,
+        });
+        return null;
+      }
+    },
+    [refreshDocuments]
+  );
 
   const resetUploadState = useCallback(() => {
     setUploadProgress(INITIAL_UPLOAD_PROGRESS);
@@ -221,14 +234,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteDoc = useCallback(
     async (id: string) => {
-      await documentService.deleteDocument(id);
-      setDocuments((prev) => prev.filter((d) => d.id !== id));
-      if (activeDocument?.id === id) {
-        const remaining = documents.filter((d) => d.id !== id);
-        setActiveDocument(remaining[0] || null);
+      try {
+        await documentService.deleteDocument(id);
+        const updated = await refreshDocuments();
+        if (activeDocument?.id === id || activeDocument?.name === id) {
+          setActiveDocument(updated[0] || null);
+        }
+      } catch (err) {
+        console.error('Error deleting document:', err);
       }
     },
-    [activeDocument, documents]
+    [activeDocument, refreshDocuments]
   );
 
   const saveItem = useCallback((item: Omit<SavedItem, 'id' | 'savedAt'>) => {
@@ -277,6 +293,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteDoc,
         selectDocumentAndOpen,
         resetUploadState,
+        refreshDocuments,
       }}
     >
       {children}
