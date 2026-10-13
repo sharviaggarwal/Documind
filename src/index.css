@@ -1,0 +1,160 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    border-color: rgba(142, 23, 53, 0.12);
+  }
+
+  body {
+    background-color: #FFF9F0;
+    color: #4A1525;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+  }
+}
+
+/* Subtle stationery graph paper grid */
+.bg-subtle-grid {
+  background-color: #FFF9F0;
+  background-image: 
+    linear-gradient(to right, rgba(74, 21, 37, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(74, 21, 37, 0.035) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.bg-notebook-lines {
+  background-color: #FFFDF8;
+  background-image: repeating-linear-gradient(
+    transparent,
+    transparent 27px,
+    rgba(142, 23, 53, 0.06) 28px
+  );
+}
+
+.bg-dot-grid {
+  background-image: radial-gradient(rgba(74, 21, 37, 0.08) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+/* Washi tape decorative strip */
+.washi-tape-blush {
+  background: rgba(246, 200, 210, 0.7);
+  box-shadow: 0 1px 2px rgba(74, 21, 37, 0.05);
+  backdrop-filter: blur(1px);
+}
+
+.washi-tape-lavender {
+  background: rgba(201, 199, 245, 0.7);
+  box-shadow: 0 1px 2px rgba(74, 21, 37, 0.05);
+  backdrop-filter: blur(1px);
+}
+
+/* Marker highlighter effect */
+.highlight-blush {
+  background: linear-gradient(104deg, rgba(246, 200, 210, 0) 0.9%, rgba(246, 200, 210, 0.65) 2.4%, rgba(246, 200, 210, 0.5) 96%);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+.highlight-yellow {
+  background: linear-gradient(104deg, rgba(252, 231, 162, 0) 0.9%, rgba(252, 231, 162, 0.7) 2.4%, rgba(252, 231, 162, 0.6) 96%);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+/* Warm stationery scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(142, 23, 53, 0.18);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(142, 23, 53, 0.32);
+}
+
+/* Editorial prose styling for AI answers */
+.prose-documind {
+  font-size: 0.9375rem;
+  line-height: 1.68;
+  color: #4A1525;
+}
+
+.prose-documind p {
+  margin-bottom: 0.75rem;
+}
+
+.prose-documind p:last-child {
+  margin-bottom: 0;
+}
+
+.prose-documind h2 {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #8E1735;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+  letter-spacing: -0.01em;
+}
+
+.prose-documind h3 {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #8E1735;
+  margin-top: 1rem;
+  margin-bottom: 0.4rem;
+}
+
+.prose-documind strong {
+  font-weight: 600;
+  color: #4A1525;
+}
+
+.prose-documind blockquote {
+  border-left: 3px solid #8E1735;
+  background-color: #FBE3E8;
+  padding: 0.65rem 0.9rem;
+  margin: 0.85rem 0;
+  border-radius: 0 0.5rem 0.5rem 0;
+  font-style: italic;
+  color: #4A1525;
+}
+
+.prose-documind code {
+  background-color: #FBE3E8;
+  color: #8E1735;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.825em;
+  font-weight: 500;
+}
+
+.prose-documind pre {
+  background-color: #4A1525;
+  color: #FFFDF8;
+  padding: 0.875rem 1rem;
+  border-radius: 0.75rem;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.825rem;
+  box-shadow: 0 2px 8px rgba(74, 21, 37, 0.15);
+}
+
+.prose-documind pre code {
+  background-color: transparent;
+  color: inherit;
+  padding: 0;
+}
