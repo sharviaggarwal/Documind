@@ -278,23 +278,15 @@ export const UploadModal: React.FC = () => {
           />
 
           {isReady && (
-            <div className="mt-6 pt-4 border-t border-cherry/10 flex flex-col sm:flex-row gap-3">
+            <div className="mt-6 pt-4 border-t border-cherry/10">
               <Button
                 variant="primary"
-                className="flex-1"
+                className="w-full justify-center"
                 icon={<ArrowRight className="w-4 h-4" />}
                 iconPosition="right"
                 onClick={navigateToWorkspace}
               >
-                Open in Reading Notebook
-              </Button>
-              <Button
-                variant="secondary"
-                className="flex-1"
-                icon={<Sparkles className="w-4 h-4 text-cherry" />}
-                onClick={navigateToInsights}
-              >
-                View Document Insights
+                Start Asking Questions
               </Button>
             </div>
           )}

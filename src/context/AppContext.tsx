@@ -10,12 +10,18 @@ import {
 } from '../types';
 import { documentService } from '../services/documentService';
 import { ragService } from '../services/ragService';
+import { historyService, ChatSession } from '../services/historyService';
+import { AuthUser, getCurrentUser, getSupabase } from '../lib/supabase';
 import { INITIAL_SAVED_ITEMS } from '../data/mockData';
 import confetti from 'canvas-confetti';
 
 interface AppContextType {
   activeView: ActiveView;
   setActiveView: (view: ActiveView) => void;
+  currentUser: AuthUser | null;
+  setCurrentUser: (user: AuthUser | null) => void;
+  isAuthChecking: boolean;
+  logout: () => Promise<void>;
   documents: Document[];
   activeDocument: Document | null;
   setActiveDocument: (doc: Document | null) => void;
@@ -41,6 +47,11 @@ interface AppContextType {
   selectDocumentAndOpen: (doc: Document, view?: ActiveView) => void;
   resetUploadState: () => void;
   refreshDocuments: () => Promise<Document[]>;
+  chatSessions: ChatSession[];
+  currentSessionId: string | null;
+  startNewChat: () => void;
+  loadChatSession: (sessionId: string) => void;
+  deleteChatSession: (sessionId: string) => void;
 }
 
 const DEFAULT_SETTINGS: RAGSettings = {
@@ -49,7 +60,7 @@ const DEFAULT_SETTINGS: RAGSettings = {
   retrievalTopK: 3,
   chunkSize: 2000,
   similarityThreshold: 0.78,
-  systemPrompt: 'You are DocuMind, an AI document intelligence assistant. Answer the user\'s question using ONLY the information provided in the context. Ground claims strictly in cited [doc | Page n] sources.',
+  systemPrompt: 'You are DocuMind, an AI document intelligence assistant. Answer questions strictly grounded in the uploaded document. Use [doc | Page n] citations.',
   streamSpeed: 'fast',
   useMockBackend: false,
 };
@@ -63,7 +74,9 @@ const INITIAL_UPLOAD_PROGRESS: UploadProgressState = {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [activeView, setActiveView] = useState<ActiveView>('home');
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
+  const [activeView, setActiveView] = useState<ActiveView>('chat');
   const [documents, setDocuments] = useState<Document[]>([]);
   const [activeDocument, setActiveDocument] = useState<Document | null>(null);
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
@@ -75,6 +88,56 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [settings, setSettings] = useState<RAGSettings>(DEFAULT_SETTINGS);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgressState>(INITIAL_UPLOAD_PROGRESS);
+
+  // History state
+  const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+
+  // Check auth session
+  useEffect(() => {
+    getCurrentUser().then((user) => {
+      setCurrentUser(user);
+      setIsAuthChecking(false);
+    });
+
+    const client = getSupabase();
+    if (client) {
+      const { data: authListener } = client.auth.onAuthStateChange((_event, session) => {
+        if (session?.user && session.user.email) {
+          setCurrentUser({ id: session.user.id, email: session.user.email });
+        } else if (!localStorage.getItem('documind_guest_user')) {
+          setCurrentUser(null);
+        }
+      });
+      return () => {
+        authListener?.subscription.unsubscribe();
+      };
+    }
+  }, []);
+
+  const refreshSessions = useCallback(() => {
+    const list = historyService.getSessions(currentUser?.id);
+    setChatSessions(list);
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    refreshSessions();
+  }, [refreshSessions]);
+
+  const logout = useCallback(async () => {
+    localStorage.removeItem('documind_guest_user');
+    const client = getSupabase();
+    if (client) {
+      try {
+        await client.auth.signOut();
+      } catch (e) {
+        console.error('Sign out error:', e);
+      }
+    }
+    setCurrentUser(null);
+    setChatMessages([]);
+    setCurrentSessionId(null);
+  }, []);
 
   const refreshDocuments = useCallback(async (): Promise<Document[]> => {
     try {
@@ -95,32 +158,62 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     refreshDocuments();
   }, [refreshDocuments]);
 
-  // Sync chat messages when active document changes
-  useEffect(() => {
-    if (activeDocument) {
-      ragService.getMessages(activeDocument.id).then((msgs) => {
-        setChatMessages(msgs);
-        const lastMsgWithCitations = [...msgs].reverse().find((m) => m.citations && m.citations.length > 0);
-        if (lastMsgWithCitations && lastMsgWithCitations.citations && lastMsgWithCitations.citations.length > 0) {
-          setSelectedSource(lastMsgWithCitations.citations[0]);
-        } else {
-          setSelectedSource(null);
-        }
-      });
-      setActivePageNumber(1);
-    }
-  }, [activeDocument]);
-
   const selectDocumentAndOpen = useCallback((doc: Document, view: ActiveView = 'chat') => {
     setActiveDocument(doc);
     setActiveView(view);
   }, []);
+
+  const startNewChat = useCallback(() => {
+    setCurrentSessionId(null);
+    setChatMessages([]);
+    setSelectedSource(null);
+    setActiveCitationId(null);
+  }, []);
+
+  const loadChatSession = useCallback(
+    (sessionId: string) => {
+      const session = historyService.getSessionById(sessionId, currentUser?.id);
+      if (session) {
+        setCurrentSessionId(session.id);
+        setChatMessages(session.messages || []);
+
+        const doc = documents.find(
+          (d) => d.id === session.documentId || d.name === session.documentName
+        );
+        if (doc) {
+          setActiveDocument(doc);
+        }
+
+        const lastWithCit = [...(session.messages || [])]
+          .reverse()
+          .find((m) => m.citations && m.citations.length > 0);
+        if (lastWithCit?.citations && lastWithCit.citations.length > 0) {
+          setSelectedSource(lastWithCit.citations[0]);
+        } else {
+          setSelectedSource(null);
+        }
+      }
+    },
+    [currentUser?.id, documents]
+  );
+
+  const deleteChatSession = useCallback(
+    (sessionId: string) => {
+      historyService.deleteSession(sessionId, currentUser?.id);
+      refreshSessions();
+      if (currentSessionId === sessionId) {
+        startNewChat();
+      }
+    },
+    [currentUser?.id, currentSessionId, refreshSessions, startNewChat]
+  );
 
   const sendMessage = useCallback(
     async (content: string) => {
       if (!content.trim() || isStreaming) return;
 
       const docId = activeDocument ? activeDocument.id : 'all';
+      const docName = activeDocument ? activeDocument.name : 'General Document';
 
       const userMsg: Message = {
         id: `user-${Date.now()}`,
@@ -130,11 +223,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
 
-      // Append user message immediately
-      setChatMessages((prev) => [...prev, userMsg]);
-      ragService.saveMessage(docId, userMsg);
-
-      // Create placeholder assistant message
       const assistantMsgId = `asst-${Date.now()}`;
       const placeholderAssistantMsg: Message = {
         id: assistantMsgId,
@@ -146,11 +234,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         citations: [],
       };
 
-      setChatMessages((prev) => [...prev, placeholderAssistantMsg]);
+      const newMessagesList = [...chatMessages, userMsg, placeholderAssistantMsg];
+      setChatMessages(newMessagesList);
       setIsStreaming(true);
 
+      // Determine or create session ID
+      let sessId = currentSessionId;
+      let sessionTitle = content.trim().slice(0, 40);
+
+      if (!sessId) {
+        const created = historyService.createSession(
+          content.trim(),
+          docId,
+          docName,
+          [userMsg, placeholderAssistantMsg],
+          currentUser?.id
+        );
+        sessId = created.id;
+        sessionTitle = created.title;
+        setCurrentSessionId(sessId);
+      }
+
       try {
-        await ragService.query(
+        const responseMsg = await ragService.query(
           activeDocument,
           content,
           settings,
@@ -172,25 +278,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
           }
         );
+
+        // Update full message in state
+        const updatedList = [
+          ...chatMessages,
+          userMsg,
+          {
+            ...responseMsg,
+            id: assistantMsgId,
+            isLoading: false,
+          },
+        ];
+        setChatMessages(updatedList);
+
+        // Persist to session history
+        historyService.saveSession(
+          {
+            id: sessId,
+            title: sessionTitle,
+            documentId: docId,
+            documentName: docName,
+            updatedAt: new Date().toISOString(),
+            messages: updatedList,
+          },
+          currentUser?.id
+        );
+        refreshSessions();
       } catch (err: unknown) {
         console.error('Error generating AI response:', err);
         const errMsg = (err as { message?: string })?.message || String(err);
-        setChatMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantMsgId
-              ? {
-                  ...m,
-                  content: `⚠️ Failed to generate answer: ${errMsg}. Please check if the DocuMind backend (port 8000) and Ollama ('llama3.1:8b') are active.`,
-                  isLoading: false,
-                }
-              : m
-          )
+        const errorAssistantMsg: Message = {
+          id: assistantMsgId,
+          documentId: docId,
+          role: 'assistant',
+          content: `⚠️ Failed to generate answer: ${errMsg}. Please verify the DocuMind backend (port 8000) and Ollama are running.`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isLoading: false,
+        };
+
+        const updatedList = [...chatMessages, userMsg, errorAssistantMsg];
+        setChatMessages(updatedList);
+
+        historyService.saveSession(
+          {
+            id: sessId,
+            title: sessionTitle,
+            documentId: docId,
+            documentName: docName,
+            updatedAt: new Date().toISOString(),
+            messages: updatedList,
+          },
+          currentUser?.id
         );
+        refreshSessions();
       } finally {
         setIsStreaming(false);
       }
     },
-    [activeDocument, isStreaming, settings]
+    [activeDocument, chatMessages, currentSessionId, currentUser?.id, isStreaming, refreshSessions, settings]
   );
 
   const handleFileUpload = useCallback(
@@ -204,10 +349,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           confetti({
             particleCount: 50,
             spread: 60,
-            origin: { y: 0.6 }
+            origin: { y: 0.6 },
           });
         } catch {
-          // ignore in non-browser or if canvas blocked
+          // ignore
         }
 
         await refreshDocuments();
@@ -269,6 +414,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       value={{
         activeView,
         setActiveView,
+        currentUser,
+        setCurrentUser,
+        isAuthChecking,
+        logout,
         documents,
         activeDocument,
         setActiveDocument,
@@ -294,6 +443,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         selectDocumentAndOpen,
         resetUploadState,
         refreshDocuments,
+        chatSessions,
+        currentSessionId,
+        startNewChat,
+        loadChatSession,
+        deleteChatSession,
       }}
     >
       {children}

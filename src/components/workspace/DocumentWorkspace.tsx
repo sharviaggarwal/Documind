@@ -5,7 +5,7 @@ import { SourcesSidebar } from './SourcesSidebar';
 import { PanelLeft, PanelRight } from 'lucide-react';
 
 export const DocumentWorkspace: React.FC = () => {
-  const [showLeftSidebar, setShowLeftSidebar] = useState(true);
+  const [showLeftSidebar, setShowLeftSidebar] = useState(false);
   const [showRightSidebar, setShowRightSidebar] = useState(true);
 
   return (
